@@ -1,0 +1,78 @@
+#  Türkiyenin 2021 yılındaki konut satışı rakamları bulunmaktadır. Veriler https://data.tuik.gov.tr/Search/Search?text=illere%20g%C3%B6re&dil=1 den ve # https://gadm.org/download_country_v3.html den alınmıştır.
+
+require(tidyverse)
+
+library(sp) #konumsal veri için
+
+tur <- readRDS("gadm36_TUR_1_sp.rds")
+tur
+tur@data %>% as_tibble() %>% head(10)
+ggplot(tur, aes(x=long, y=lat)) + geom_polygon()
+
+ggplot(tur, aes(x=long, y=lat)) +
+  geom_polygon(aes(group= group)) + coord_fixed()
+#ülke sınırlarını çizdirdikten sonra sehirlere bolmek için
+#sp kütüphanesinin içindeki fortify fonksiyonunu kullanacağız.
+
+tur_for <- fortify(tur)#bu fonksiyon 'sp' paketinin içinde
+#her ilin enlem(logitude) ve noylam(lattitude) değerleri
+
+head(tur_for)
+
+ggplot(tur_for) +
+  geom_polygon(aes(x=long, y=lat, group=group), color="white", fill="red") +
+  theme_void() + coord_fixed()
+
+library(readxl)
+satis <- read_excel("satis.xlsx")
+
+#çoklu gsub fonksiyon harf degiştirme
+
+mgsub <- function(pattern, replacement, x, ...) {
+  n = length(pattern)
+  if (n != length(replacement)) {
+    stop("pattern and replacement do not have the same length.")
+  }
+  result = x
+  for (i in 1:n) {
+    result <- gsub(pattern[i],replacement[i],result)
+  }
+  return(result)
+}
+turkceden_ingilizceye <- function(dataset){
+  turkce_harfler<- c("Ç","Ş","Ğ","İ","Ü","Ö","ç","ş","ğ","ı","ü","ö")
+  ingilizce_harfler<- c("C","S","G","I","U","O","c","s","g","i","u","o")
+  dataset=mgsub(turkce_harfler,ingilizce_harfler,dataset)
+  return(dataset)
+}
+
+tur@data$NAME_1 <- turkceden_ingilizceye(tur@data$NAME_1 )
+
+tur@data$NAME_1 <- gsub("K. Maras", "Kahramanmaras",tur@data$NAME_1 )
+tur@data$NAME_1 <- gsub("Kinkkale","Kirikkale",tur@data$NAME_1 )
+tur@data$NAME_1 <- gsub("Zinguldak", "Zonguldak", tur@data$NAME_1 )
+tur@data$NAME_1 <- gsub("Afyon","Afyonkarahisar", tur@data$NAME_1 )
+
+
+satis$Sehir= turkceden_ingilizceye(satis$Sehir)
+
+satis%>%as_tibble
+
+
+id_Sehir <- data_frame(id= rownames(tur@data), Sehir= tur@data$NAME_1)
+id_Sehir_satis <- id_Sehir %>% left_join(satis, by="Sehir")
+
+satis_harita <- left_join(tur_for, id_Sehir_satis, by="id")
+
+ggplot(satis_harita ) +
+  geom_polygon( aes(x = long , y = lat, group = group, fill = Toplam),color = "grey") +
+  coord_map() +
+  theme_void() + 
+  labs(title = "Türkiye'nin İllere Göre 2021 Konut Satışı",
+       caption = "Kaynak: Türkiye Istatistik Kurumu") +
+  scale_fill_distiller(name = "Satış Rakamları ",
+                       palette = "Spectral",
+                       limits = c(0,3000),
+                       na.value = "white") +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
